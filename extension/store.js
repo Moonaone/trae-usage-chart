@@ -59,6 +59,44 @@ function corruptFilePath() {
   return `${usagePath}.corrupt-${stamp}`;
 }
 
+// dispose() 在退出时可能仍有未落盘数据（例如锁争用超时、随后立刻重载窗口）。
+// 那种情况落盘只是「稍后重试」，而宿主退出会清掉重试定时器，记录将永久丢失。
+// 因此 dispose() 会同步写出一份每宿主独立的 pending-*.json，这里在启动时并回。
+async function mergeRecoveryFiles() {
+  const dir = context.globalStorageUri.fsPath;
+  let names;
+  try {
+    names = (await fsp.readdir(dir)).filter((name) => name.startsWith('pending-') && name.endsWith('.json'));
+  } catch (error) {
+    log('扫描退出恢复文件失败', error);
+    return 0;
+  }
+  let adopted = 0;
+  for (const name of names) {
+    const full = path.join(dir, name);
+    try {
+      const parsed = JSON.parse(await fsp.readFile(full, 'utf8'));
+      if (!isDataRoot(parsed)) throw new Error('结构无效');
+      const incoming = Object.values(validData(parsed).days).flat();
+      const current = Object.values(data.days).flat();
+      const result = mergeRecords(current, incoming);
+      const days = {};
+      result.records.forEach((record) => {
+        const key = dateKey(Number(record.t));
+        if (!Array.isArray(days[key])) days[key] = [];
+        days[key].push(record);
+      });
+      data = { v: 1, days };
+      adopted += result.added + result.replaced;
+      await fsp.rm(full, { force: true });
+      log(`[recovery] 已合并退出恢复文件 ${name}：新增 ${result.added} 条，取大替换 ${result.replaced} 条`);
+    } catch (error) {
+      log(`[recovery] 合并 ${name} 失败`, error);
+    }
+  }
+  return adopted;
+}
+
 async function init(extensionContext, channel) {
   context = extensionContext;
   output = channel;
@@ -137,9 +175,10 @@ async function init(extensionContext, channel) {
     }
   }
 
+  const exitCount = await mergeRecoveryFiles();
   const added = await mergeHistory();
   const cleaned = rebuildFingerprintIndexes();
-  if (added > 0 || recovered || cleaned) {
+  if (added > 0 || recovered || cleaned || exitCount > 0) {
     if (added > 0) log(`[history] 合并历史记录 ${added} 条`);
     if (cleaned) log('[twin] 启动自检清除了重复副本，已安排落盘');
     dirty = true;
@@ -172,11 +211,24 @@ async function mergeHistory() {
     });
   });
   let added = 0;
+  let adopted = 0;
   list.forEach((raw) => {
     if (!raw || typeof raw !== 'object' || !Number.isFinite(Number(raw.t))) return;
     const sid = raw.sid === null || raw.sid === undefined || raw.sid === '' ? null : String(raw.sid);
     if (sid && knownSids.has(sid)) return;
-    if (looseKeys.has(recordSignature(raw))) return;
+    const signature = recordSignature(raw);
+    if (looseKeys.has(signature)) {
+      // 账本里已有同内容的无 sid 副本。直接跳过会留下一条没有身份的记录：
+      // 之后 CDP 抓到同一会话更高的 cr 快照时签名已变，无法再按 sid 桥接，
+      // 两条会同时存在并重复计费。所以这里应当把 sid 补到那条记录上。
+      if (sid && adoptSidBySignature(signature, sid)) {
+        knownSids.add(sid);
+        looseKeys.delete(signature);
+        adopted += 1;
+        log(`[history] 为同内容的无 sid 记录补回 sid=${sid}`);
+      }
+      return;
+    }
     const key = dateKey(Number(raw.t));
     if (!Array.isArray(data.days[key])) data.days[key] = [];
     data.days[key].push({
@@ -194,10 +246,23 @@ async function mergeHistory() {
     else looseKeys.add(recordSignature(raw));
     added += 1;
   });
-  if (added > 0) {
+  if (added > 0 || adopted > 0) {
     Object.keys(data.days).forEach((key) => data.days[key].sort((a, b) => (a.t || 0) - (b.t || 0)));
   }
-  return added;
+  return added + adopted;
+}
+
+// 把 sid 补到「内容完全相同、但没有身份」的那条记录上，返回是否成功。
+function adoptSidBySignature(signature, sid) {
+  for (const records of Object.values(data.days)) {
+    for (const record of records) {
+      if (record && !record.sid && recordSignature(record) === signature) {
+        record.sid = sid;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function numberOrNull(value) {
@@ -465,11 +530,18 @@ async function acquireLock(maxAttempts = 8, waitMs = 40) {
         return false;
       }
       try {
-        await fsp.readFile(lockPath, 'utf8');
         const stat = await fsp.stat(lockPath);
         if (isStaleLock(stat.mtimeMs, Date.now(), LOCK_STALE_MS)) {
-          await fsp.rm(lockPath, { force: true });
-          log('[lock] 已清理超过 10 秒的陈旧锁');
+          // 用 rename 抢占陈旧锁：rename 是原子的，两个清理者里只有一个能成功
+          // 移动同一个文件。若直接 rm，B 可能删掉 A 刚重建的新锁，形成双持锁。
+          const claim = `${lockPath}.stale-${process.pid}-${Date.now()}`;
+          try {
+            await fsp.rename(lockPath, claim);
+            await fsp.rm(claim, { force: true });
+            log('[lock] 已清理超过 10 秒的陈旧锁');
+          } catch (claimError) {
+            if (!claimError || claimError.code !== 'ENOENT') log('[lock] 回收陈旧锁失败', claimError);
+          }
           continue;
         }
       } catch (readError) {
@@ -500,14 +572,24 @@ async function releaseLock() {
 }
 
 async function mergeFromDisk() {
+  let text;
+  try {
+    text = await fsp.readFile(usagePath, 'utf8');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return { ok: true, count: 0 };
+    log('[merge] 无法读取 usage.json', error);
+    return { ok: false, count: 0 };
+  }
   let disk;
   try {
-    const parsed = JSON.parse(await fsp.readFile(usagePath, 'utf8'));
+    const parsed = JSON.parse(text);
     if (!isDataRoot(parsed)) throw new Error('usage.json 结构无效');
     disk = validData(parsed);
   } catch (error) {
-    log('[merge] 无法重读 usage.json，跳过磁盘合并', error);
-    return 0;
+    // 磁盘存在但读不出结构：此时内存账本不完整，若继续落盘会连同
+    // 唯一有效的 .bak 一起被覆盖。必须中止本次写入，等下次启动走恢复流程。
+    log('[merge] usage.json 无法解析，本次不覆盖磁盘（保留待落盘数据）', error);
+    return { ok: false, count: 0 };
   }
   const memoryRecords = Object.values(data.days).flat();
   const diskRecords = Object.values(disk.days).flat();
@@ -520,7 +602,7 @@ async function mergeFromDisk() {
   });
   data = { v: 1, days };
   if (result.added || result.replaced) log(`[merge] 从磁盘补齐 ${result.added} 条，取大替换 ${result.replaced} 条`);
-  return result.added + result.replaced;
+  return { ok: true, count: result.added + result.replaced };
 }
 
 async function flush() {
@@ -541,7 +623,14 @@ async function flush() {
         }
         return;
       }
-      await mergeFromDisk();
+      const merged = await mergeFromDisk();
+      if (!merged.ok) {
+        // 磁盘账本不可信：本次绝不写入，否则会毁掉 .bak 与另一宿主的记录。
+        if (dirty && !flushTimer) {
+          flushTimer = setTimeout(() => { flushTimer = undefined; void flush(); }, FLUSH_DELAY_MS);
+        }
+        return;
+      }
       prune();
       if (rebuildFingerprintIndexes()) log('[twin] 合并后自愈清除了重复或空记录');
       try {
@@ -652,6 +741,19 @@ function getAudit() {
 function dispose() {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = undefined;
+  // 锁争用超时后落盘只是「稍后重试」，而重载/关闭窗口会立刻清掉那个定时器。
+  // 这里同步写出一份每宿主独立的恢复文件，下次启动由 mergeRecoveryFiles() 并回，
+  // 因此「退出时恰好没拿到锁」不再等于丢记录。
+  if (!dirty || !context) return;
+  try {
+    const dir = context.globalStorageUri.fsPath;
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `pending-${process.pid}-${Date.now()}.json`);
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+    log(`[recovery] 退出时仍有未落盘数据，已写出 ${path.basename(file)}，下次启动合并`);
+  } catch (error) {
+    log('写入退出恢复文件失败', error);
+  }
 }
 
 module.exports = { init, addRecord, addRawSample, flush, dispose, getStats, getSummary, getAudit, setOnChange };

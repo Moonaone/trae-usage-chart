@@ -604,6 +604,55 @@ async function test(name, fn) {
       const corrupt = fs.readdirSync(dir).some((name) => /^usage\.json\.corrupt-\d{8}-\d{6}$/.test(name));
       if (!corrupt || !rows.some((row) => row.sid === 'old')) throw new Error(failText({ rows, files: fs.readdirSync(dir) }));
     });
+
+    await test('merge-aborts-on-corrupt-disk', async () => {
+      const dir = makeDir('merge-corrupt');
+      await open(dir);
+      store.addRecord({ t: 1792996182746, m: 'm', p: 1, c: 1, ca: 1, cr: 1, s: 'test', e: 'e', sid: 'good' });
+      await close();
+      await open(dir);
+      store.addRecord({ t: 1792996182747, m: 'm', p: 2, c: 2, ca: 2, cr: 2, s: 'test', e: 'e', sid: 'good2' });
+      await close();
+      // 到这里 usage.json 有两条，.bak 有一份可用的上一版
+      await open(dir);
+      fs.writeFileSync(path.join(dir, 'usage.json'), 'broken', 'utf8');
+      store.addRecord({ t: 1792996182748, m: 'm', p: 3, c: 3, ca: 3, cr: 3, s: 'test', e: 'e', sid: 'later' });
+      await store.flush();
+      const mainText = fs.readFileSync(path.join(dir, 'usage.json'), 'utf8');
+      if (mainText !== 'broken') throw new Error('损坏的主文件被覆盖了: ' + mainText.slice(0, 60));
+      const backupRows = allRecords(JSON.parse(fs.readFileSync(path.join(dir, 'usage.json.bak'), 'utf8')));
+      if (!backupRows.some((row) => row.sid === 'good')) throw new Error('可用备份被损坏文件覆盖: ' + failText(backupRows));
+      store.dispose();
+    });
+
+    await test('dispose-preserves-unflushed-records', async () => {
+      const dir = makeDir('exit-recovery');
+      await open(dir);
+      store.addRecord({ t: 1792996182746, m: 'm', p: 1, c: 1, ca: 1, cr: 1, s: 'test', e: 'e', sid: 'unsaved' });
+      store.dispose();
+      const pending = fs.readdirSync(dir).filter((name) => name.startsWith('pending-'));
+      if (pending.length !== 1) throw new Error('没有写出退出恢复文件: ' + failText(fs.readdirSync(dir)));
+      await open(dir);
+      await close();
+      const rows = allRecords(usage(dir));
+      if (!rows.some((row) => row.sid === 'unsaved')) throw new Error('未落盘记录丢失: ' + failText(rows));
+      if (fs.readdirSync(dir).some((name) => name.startsWith('pending-'))) throw new Error('恢复文件未被清理');
+    });
+
+    await test('history-adopts-sid', async () => {
+      const dir = makeDir('history-adopt');
+      await open(dir);
+      store.addRecord({ t: 1792996182746, m: 'm', p: 10, c: 1, ca: 3, cr: 1, s: 'cdp', e: 'e', sid: null });
+      await close();
+      fs.writeFileSync(path.join(dir, 'history.json'), JSON.stringify({ v: 1, records: [
+        { t: 1792996182746, m: 'm', p: 10, c: 1, ca: 3, cr: 1, s: 'history', e: 'e', sid: 'S1' }
+      ] }), 'utf8');
+      await open(dir);
+      await close();
+      const rows = allRecords(usage(dir));
+      if (rows.length !== 1) throw new Error('同内容记录被重复计入: ' + failText(rows));
+      if (rows[0].sid !== 'S1') throw new Error('同内容记录没有补回 sid: ' + failText(rows[0]));
+    });
   } finally {
     try { store.dispose(); } catch (_) {}
     fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -1,5 +1,7 @@
 # Trae Usage Chart
 
+**English** | [简体中文](README.zh-CN.md)
+
 An **offline, local-only** usage monitor for [TRAE CN](https://www.trae.ai/). It records how many tokens and credits
 each AI session consumes, and draws them as an overview dashboard — no account upload, no telemetry, no network calls.
 
@@ -42,7 +44,7 @@ Verify it worked: open `http://127.0.0.1:9222/json/version` in a browser — you
 
 ## Install
 
-1. Download `trae-usage-chart-0.1.0.vsix` from [Releases](../../releases)
+1. Download `trae-usage-chart-0.1.1.vsix` from [Releases](../../releases)
 2. In TRAE: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the file
 3. `Ctrl+Shift+P` → **Developer: Reload Window**
 

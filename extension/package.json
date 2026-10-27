@@ -2,7 +2,7 @@
   "name": "trae-usage-chart",
   "displayName": "Trae Usage Chart",
   "description": "离线 Trae CN 用量概览与图表",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "local",
   "license": "MIT",
   "engines": {

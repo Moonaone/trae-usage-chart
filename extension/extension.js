@@ -192,10 +192,23 @@ async function performReconciliation(quotaResult) {
   try {
     await fs.promises.mkdir(extensionContext.globalStorageUri.fsPath, { recursive: true });
     const filename = path.join(extensionContext.globalStorageUri.fsPath, 'reconcile.json');
-    if (reconciliationMainValid) await fs.promises.copyFile(filename, filename + '.bak');
-    await fs.promises.writeFile(filename + '.tmp', JSON.stringify(reconciliationState, null, 2), 'utf8');
+    if (reconciliationMainValid) {
+      try {
+        await fs.promises.copyFile(filename, filename + '.bak');
+      } catch (copyError) {
+        if (!copyError || copyError.code !== 'ENOENT') throw copyError;
+        // 主文件已不在（上一次替换在 rm 之后、rename 之前失败）。
+        // 必须撤销这个标记，否则此后每次检查都会在这里因 ENOENT 抛出，
+        // 永远走不到写入步骤，差额状态再也无法持久化。
+        reconciliationMainValid = false;
+      }
+    }
+    // 每个宿主用独立的临时文件名：此前两个宿主共用 reconcile.json.tmp，
+    // 一方可能在另一方写入中途把它改名走，导致主文件缺失。
+    const tempName = `${filename}.tmp-${process.pid}`;
+    await fs.promises.writeFile(tempName, JSON.stringify(reconciliationState, null, 2), 'utf8');
     await fs.promises.rm(filename, { force: true });
-    await fs.promises.rename(filename + '.tmp', filename);
+    await fs.promises.rename(tempName, filename);
     reconciliationMainValid = true;
   } catch (error) {
     appendLine(`写入 reconcile.json 失败：${formatError(error)}`);
