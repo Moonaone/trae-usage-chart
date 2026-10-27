@@ -10,6 +10,8 @@
 > **非官方扩展**，与 TRAE 官方无关。它通过 Chrome DevTools Protocol 读取 TRAE 自身的网络响应，
 > 因此 TRAE 升级后可能失效。
 
+![Trae Usage Chart 面板](docs/dashboard.png)
+
 ---
 
 ## 功能

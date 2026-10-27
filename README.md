@@ -10,6 +10,8 @@ each AI session consumes, and draws them as an overview dashboard — no account
 > **Unofficial.** This extension is not affiliated with or endorsed by TRAE. It reads TRAE's own local network
 > traffic through the Chrome DevTools Protocol, so it may stop working after a TRAE update.
 
+![Trae Usage Chart dashboard](docs/dashboard.png)
+
 ---
 
 ## What it shows
