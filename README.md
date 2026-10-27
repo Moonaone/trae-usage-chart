@@ -2,6 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+[![tests](https://github.com/Moonaone/trae-usage-chart/actions/workflows/tests.yml/badge.svg)](https://github.com/Moonaone/trae-usage-chart/actions/workflows/tests.yml)
+
 An **offline, local-only** usage monitor for [TRAE CN](https://www.trae.ai/). It records how many tokens and credits
 each AI session consumes, and draws them as an overview dashboard — no account upload, no telemetry, no network calls.
 

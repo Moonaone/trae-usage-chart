@@ -2,6 +2,8 @@
 
 [English](README.md) | **简体中文**
 
+[![tests](https://github.com/Moonaone/trae-usage-chart/actions/workflows/tests.yml/badge.svg)](https://github.com/Moonaone/trae-usage-chart/actions/workflows/tests.yml)
+
 一个**离线、纯本地**的 [TRAE CN](https://www.trae.ai/) 用量统计扩展。记录每次 AI 会话消耗的 token、缓存与积分，
 并绘制成面板图表。不上传、不联网、无遥测。
 
