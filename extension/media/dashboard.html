@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src {{CSP_SOURCE}}; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}';">
+  <title>Trae Usage Chart</title>
+  <link rel="stylesheet" href="{{CSS_URI}}">
+</head>
+<body>
+  <main id="app">
+    <header class="topbar">
+      <div>
+        <h1>概览</h1>
+        <p id="range-summary" class="subtitle"><span id="range-summary-text">最近 7 天 · — Token / — 个请求</span> <span id="health-status" class="health-status"></span></p>
+      </div>
+      <div class="topbar-actions">
+        <div id="range-tabs" class="pill-group" role="tablist" aria-label="时间范围">
+          <button class="pill active" data-range="7" role="tab">最近 7 天</button>
+          <button class="pill" data-range="30" role="tab">最近 30 天</button>
+          <button class="pill" data-range="90" role="tab">最近 90 天</button>
+          <button class="pill" data-range="all" role="tab">全部</button>
+        </div>
+        <button id="refresh-button" class="text-button" type="button">刷新</button>
+      </div>
+    </header>
+
+    <section class="kpi-section">
+      <div id="kpi-grid" class="kpi-grid" aria-live="polite"></div>
+    </section>
+
+    <section class="card activity-card">
+      <div class="card-heading">
+        <div>
+          <h2>每日活动</h2>
+          <p class="card-subtitle">固定展示最近 120 天</p>
+        </div>
+        <div id="heat-tabs" class="pill-group compact" role="tablist" aria-label="热力图指标">
+          <button class="pill active" data-heat="tokens" role="tab">Token</button>
+          <button class="pill" data-heat="credits" role="tab">积分</button>
+        </div>
+      </div>
+      <div id="heatmap" class="heatmap" aria-label="每日活动热力图"></div>
+      <div class="heatmap-scale"><span>少</span><i class="scale level-0"></i><i class="scale level-1"></i><i class="scale level-2"></i><i class="scale level-3"></i><i class="scale level-4"></i><span>多</span></div>
+    </section>
+
+    <section class="card analysis-card">
+      <div class="card-heading analysis-heading">
+        <div>
+          <h2>分析</h2>
+          <p id="analysis-summary" class="card-subtitle">当前范围总量 —</p>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter-group">
+          <label>分组<select id="group-select"><option value="model">模型</option><option value="source">来源</option><option value="endpoint">接口</option></select></label>
+          <label>指标<select id="metric-select"><option value="tokens">Token</option><option value="credits">积分</option><option value="requests">请求数</option></select></label>
+          <label>Top<select id="top-select"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label>
+        </div>
+        <div class="filter-group right">
+          <div class="toggle-label">图表
+            <div class="pill-group compact" role="tablist" aria-label="图表类型">
+              <button class="pill active" data-chart="bar" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13V7h2v6H2Zm5 0V3h2v10H7Zm5 0V5h2v8h-2Z"/></svg>柱状图</button>
+              <button class="pill" data-chart="line" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m2 11 3-3 3 2 5-6 1 1-6 7-3-2-2 2-1-1Z"/></svg>折线图</button>
+            </div>
+          </div>
+          <div class="toggle-label">粒度
+            <div class="pill-group compact" role="tablist" aria-label="时间粒度">
+              <button class="pill" data-granularity="hour" type="button">按小时</button>
+              <button class="pill active" data-granularity="day" type="button">按天</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="chart-wrap" class="chart-wrap">
+        <svg id="chart" class="chart" viewBox="0 0 1000 320" role="img" aria-label="用量分析图"></svg>
+        <div id="chart-empty" class="chart-empty" hidden>暂无数据</div>
+      </div>
+      <div class="zoom-summary"><span id="zoom-summary">—</span><button id="zoom-reset" class="text-button" type="button">重置</button></div>
+      <div id="zoom-wrap" class="zoom-wrap">
+        <svg id="zoom-chart" class="zoom-chart" viewBox="0 0 1 46" role="img" aria-label="横轴范围概览"></svg>
+        <div class="zoom-labels"><span id="zoom-left-label" class="zoom-label"></span><span id="zoom-right-label" class="zoom-label zoom-label-right"></span></div>
+      </div>
+      <div id="legend" class="legend"></div>
+    </section>
+    <section class="card detail-card">
+      <div class="card-heading">
+        <div>
+          <h2>调用明细</h2>
+          <p id="detail-summary" class="card-subtitle">当前范围 0 条记录</p>
+        </div>
+      </div>
+      <div class="detail-table-wrap">
+        <table class="detail-table">
+          <thead><tr><th>本地时间</th><th>模型</th><th>输入 Token</th><th>输出 Token</th><th class="detail-cache">缓存读</th><th>积分</th><th>来源</th></tr></thead>
+          <tbody id="detail-rows"></tbody>
+        </table>
+        <div id="detail-empty" class="detail-empty" hidden>当前范围暂无调用记录</div>
+      </div>
+      <div id="detail-pager" class="pager" hidden><button id="detail-prev" type="button" aria-label="上一页">←</button><span id="detail-page-label">第 1 / 1 页</span><button id="detail-next" type="button" aria-label="下一页">→</button></div>
+    </section>
+    <div id="tooltip" class="tooltip" hidden></div>
+  </main>
+  <script nonce="{{NONCE}}" src="{{LOCALTIME_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{ZOOM_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{LAYOUT_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{JS_URI}}"></script>
+</body>
+</html>
+
+
+

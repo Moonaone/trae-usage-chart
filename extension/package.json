@@ -1,0 +1,45 @@
+{
+  "name": "trae-usage-chart",
+  "displayName": "Trae Usage Chart",
+  "description": "离线 Trae CN 用量概览与图表",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "trae",
+    "usage",
+    "token",
+    "credits",
+    "chart"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:traeUsageChart.open",
+    "onCommand:traeUsageChart.diagnose",
+    "onCommand:traeUsageChart.refresh"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "traeUsageChart.open",
+        "title": "Trae Usage Chart: 打开用量面板"
+      },
+      {
+        "command": "traeUsageChart.diagnose",
+        "title": "Trae Usage Chart: 显示诊断"
+      },
+      {
+        "command": "traeUsageChart.refresh",
+        "title": "Trae Usage Chart: 刷新"
+      }
+    ]
+  }
+}

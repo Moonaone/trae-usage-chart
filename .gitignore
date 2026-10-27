@@ -1,0 +1,13 @@
+# Build output and local artifacts
+*.vsix
+debug.log
+build/stage/
+build/_verify/
+build/_verify.zip
+build/out.zip
+build/shell/
+build/_reference*
+node_modules/
+
+# Machine-specific development leftovers
+build/shortcut-backup.json
